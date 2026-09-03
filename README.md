@@ -86,6 +86,12 @@ Start from `config.example.json`; only `config.json` is read at runtime.
 
 The example contains placeholders only. It contains no working credentials.
 
+The enriched stream keeps generic possible incident types in `incidents` for
+IncidentLens. For real GDELT and synthetic news only, it also records
+event-specific names in `news_incidents`; SIGMUS uses those names to originate
+and link graph Incident nodes. Other modalities never originate SIGMUS
+incidents.
+
 ## Install the replay commands
 
 Replay reads existing files; it never changes or deletes collected data.

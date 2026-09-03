@@ -73,7 +73,9 @@ def _merge_labels(first, second):
 
 
 class Enricher:
-    VERSION = "1"
+    # Version 2 gives news its event-specific incident-label prompt. Bumping the
+    # durable-cache namespace prevents older generic labels from being reused.
+    VERSION = "2"
 
     def __init__(self, backend: EnrichmentBackend | None = None, *, detector=None,
                  anomaly_threshold: float = 0.25, article_retriever=None, cache=None):
@@ -128,10 +130,23 @@ class Enricher:
             semantic: Mapping[str, Any] = {}
             image = next((item for item in observation.files if item.media_type.startswith("image/")), None)
             if image is not None: semantic = self.backend.annotate_image(image.content, image.media_type)
-            elif text: semantic = self.backend.annotate_text(text)
+            elif text:
+                if value.get("source") in {"gdelt", "news"} and hasattr(self.backend, "annotate_news"):
+                    semantic = self.backend.annotate_news(text)
+                else:
+                    semantic = self.backend.annotate_text(text)
             semantic = dict(semantic or {})
-            for name in ("effects", "incidents"):
-                if name in semantic: existing[name] = _merge_labels(existing.get(name), semantic.pop(name))
+            if "effects" in semantic:
+                existing["effects"] = _merge_labels(existing.get("effects"), semantic.pop("effects"))
+            if "incidents" in semantic:
+                semantic_incidents = semantic.pop("incidents")
+                if value.get("source") in {"gdelt", "news"}:
+                    # Preserve the detector's generic incident candidates for
+                    # IncidentLens and expose event-specific news labels
+                    # separately for SIGMUS graph construction.
+                    existing["news_incidents"] = _merge_labels([], semantic_incidents)
+                else:
+                    existing["incidents"] = _merge_labels(existing.get("incidents"), semantic_incidents)
             existing.update(semantic)
             location = existing.get("location")
             location_text = location.get("text") if isinstance(location, Mapping) else None

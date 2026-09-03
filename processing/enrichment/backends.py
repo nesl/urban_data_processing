@@ -35,9 +35,27 @@ class OpenAIBackend:
                 "are arrays of {subject,predicate,object}. effects/incidents are arrays of {name,score}. "
                 "Use null or omit a field when unsupported. Do not invent facts.")
 
+    @classmethod
+    def news_prompt(cls):
+        return (
+            cls.prompt()
+            + " For a news article, incidents must describe specific real-world event instances, "
+              "not generic categories. Use a concise incident name that distinguishes the event "
+              "with its supported event kind and place, plus a date or year when the article "
+              "supports one (for example, '2026 Los Angeles Downtown Warehouse Fire'). The event "
+              "type may remain generic. Do not create an incident when the article does not "
+              "support a particular event."
+        )
+
     def annotate_text(self, text):
         response = self.client.chat.completions.create(model=self.text_model, temperature=0,
             messages=[{"role": "system", "content": self.prompt()}, {"role": "user", "content": text}])
+        return _object(response.choices[0].message.content or "")
+
+    def annotate_news(self, text):
+        response = self.client.chat.completions.create(model=self.text_model, temperature=0,
+            messages=[{"role": "system", "content": self.news_prompt()},
+                      {"role": "user", "content": text}])
         return _object(response.choices[0].message.content or "")
 
     def annotate_image(self, content, media_type):

@@ -18,11 +18,16 @@ class Detector:
 
 
 class Backend:
-    def __init__(self): self.text_calls = []; self.image_calls = []; self.locations = []
+    def __init__(self):
+        self.text_calls = []; self.news_calls = []; self.image_calls = []; self.locations = []
     def annotate_text(self, value):
         self.text_calls.append(value)
         return {"summary": "annotated", "location": {"text": "Los Angeles"},
                 "incidents": [{"name": "fire", "score": .9}]}
+    def annotate_news(self, value):
+        self.news_calls.append(value)
+        return {"summary": "news annotated", "location": {"text": "Los Angeles"},
+                "incidents": [{"name": "2026 Downtown Los Angeles Fire", "score": .9}]}
     def annotate_image(self, content, media_type):
         self.image_calls.append((content, media_type)); return {"summary": "image annotated"}
     def geocode(self, location):
@@ -70,7 +75,12 @@ def test_link_only_news_is_retrieved_before_detection_and_annotation():
     result = Enricher(backend, detector=detector,
                       article_retriever=lambda url: "Downloaded article body").enrich(
         observation(source="gdelt", data={"url": "https://example.test/story"}))
-    assert backend.text_calls == ["Downloaded article body"]
+    assert backend.text_calls == []
+    assert backend.news_calls == ["Downloaded article body"]
+    assert result.value["annotations"]["incidents"] == []
+    assert result.value["annotations"]["news_incidents"] == [
+        {"name": "2026 Downtown Los Angeles Fire", "score": .9}
+    ]
     assert result.value["annotations"]["article_retrieval"]["status"] == "ok"
     assert detector.reports[0]["sensor_type"] == "gdelt"
 
