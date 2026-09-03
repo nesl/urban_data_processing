@@ -1,0 +1,4 @@
+beautifulsoup4>=4.12
+openai>=1
+requests>=2.31
+

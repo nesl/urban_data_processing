@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "urban-observation-processing"
+version = "0.1.0"
+description = "Replay, transport, validation, and enrichment for urban observations"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+enrichment = ["beautifulsoup4>=4.12", "openai>=1", "requests>=2.31"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+observation-replay = "replay.replay:main"
+synthetic-replay = "replay.synthetic:main"
+observation-receiver = "processing.receiver.receiver:main"
+observation-enrichment = "processing.enrichment.service:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["observation_pipeline*", "processing*", "replay*", "urban_observation_model*"]
+
+[tool.setuptools.package-data]
+"urban_observation_model" = ["*.json"]
+"observation_pipeline.assets" = ["*.txt", "*.kml"]

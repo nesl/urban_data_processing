@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://urban-observations.example/schema/observation-v1.schema.json",
+  "title": "Urban Observation v1",
+  "type": "object",
+  "required": ["schema_version", "id", "source", "time", "sensor", "data", "files"],
+  "properties": {
+    "schema_version": {"const": "urban-observation.v1"},
+    "id": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "minLength": 1},
+    "time": {"type": "string", "minLength": 1},
+    "end_time": {"type": ["string", "null"]},
+    "sensor": {"type": "string"},
+    "latitude": {"type": ["number", "null"], "minimum": -90, "maximum": 90},
+    "longitude": {"type": ["number", "null"], "minimum": -180, "maximum": 180},
+    "data": {"type": "object"},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "media_type", "size", "sha256", "content_base64"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "media_type": {"type": "string", "minLength": 1},
+          "size": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "content_base64": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "raw": {"type": "object"},
+    "annotations": {"type": "object"}
+  },
+  "additionalProperties": true
+}

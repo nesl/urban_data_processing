@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+config_file="$repo_dir/config.json"
+[[ -f "$config_file" ]] || { echo "Copy config.example.json to config.json first." >&2; exit 2; }
+
+eval "$(python3 - "$config_file" "$repo_dir" <<'PY'
+import json, shlex, sys
+from pathlib import Path
+config = json.load(open(sys.argv[1], encoding="utf-8")); repo = Path(sys.argv[2])
+paths = config.get("paths", {}); enrichment = config.get("enrichment", {}); receiver = config.get("receiver", {})
+output = Path(paths.get("output_root", "./processing-output")).expanduser()
+if not output.is_absolute(): output = (repo / output).resolve()
+output.mkdir(parents=True, exist_ok=True)
+values = {
+ "OBSERVATION_OUTPUT_HOST": output,
+ "OBSERVATION_RECEIVER_PORT": receiver.get("port", 8766),
+ "OBSERVATION_ANOMALY_THRESHOLD": enrichment.get("anomaly_threshold", 0.25),
+ "OBSERVATION_ANOMALY_ONLY": str(bool(enrichment.get("anomaly_only", False))).lower(),
+ "OBSERVATION_MAX_MESSAGE_BYTES": receiver.get("max_message_bytes", 25000000),
+ "OBSERVATION_TEXT_MODEL": enrichment.get("text_model", "gpt-4o-mini"),
+ "OBSERVATION_VISION_MODEL": enrichment.get("vision_model", "gpt-4o-mini"),
+ "OBSERVATION_OPENAI_API_KEY": enrichment.get("openai_api_key", ""),
+ "OBSERVATION_GOOGLE_PLACES_API_KEY": enrichment.get("google_places_api_key", ""),
+}
+for key, value in values.items(): print(f"export {key}={shlex.quote(str(value))}")
+PY
+)"
+
+compose=(docker compose --project-directory "$repo_dir" -f "$repo_dir/compose.yaml")
+action=${1:-help}; shift || true
+case "$action" in
+  up) exec "${compose[@]}" up -d --build "$@" ;;
+  down|stop|start|restart|ps|logs|build|pull) exec "${compose[@]}" "$action" "$@" ;;
+  config) exec "${compose[@]}" config --quiet ;;
+  *) echo "Usage: ./docker-start {up|down|stop|start|restart|ps|logs|build|pull|config}" ;;
+esac

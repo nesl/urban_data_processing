@@ -1,0 +1,9 @@
+Glendale, US, 33.5387, -112.186
+Pasadena, US, 34.1478, -118.1445
+Beverly Hills, US, 34.0736, -118.4004
+Santa Monica, US, 34.0195, -118.4912
+Torrance, US, 33.8359, -118.3406
+Long Beach, US, 33.767, -118.1892
+Anaheim, US, 33.8353, -117.9145
+Laguna Beach, US, 33.5423, -117.7831
+Compton, US, 33.8959, -118.2201

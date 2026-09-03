@@ -1,0 +1,40 @@
+{
+  "paths": {
+    "data_root": "../urban-observations/data",
+    "backup_root": "../urban-observations/backups",
+    "output_root": "./processing-output"
+  },
+  "receiver": {
+    "host": "0.0.0.0",
+    "port": 8766,
+    "max_message_bytes": 25000000
+  },
+  "enrichment": {
+    "host": "127.0.0.1",
+    "port": 8770,
+    "anomaly_threshold": 0.25,
+    "anomaly_only": false,
+    "text_model": "gpt-4o-mini",
+    "vision_model": "gpt-4o-mini",
+    "openai_api_key": "replace_me",
+    "google_places_api_key": "replace_me"
+  },
+  "real_replay": {
+    "receiver_host": "127.0.0.1",
+    "receiver_port": 8766
+  },
+  "synthetic_replay": {
+    "dataset_root": "/absolute/path/to/completed/simulator-dataset",
+    "recursive": true,
+    "interval_seconds": 0.0,
+    "output": null,
+    "mapping_output": null,
+    "receiver": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8766,
+      "timeout_seconds": 180.0,
+      "retries": 3
+    }
+  }
+}
