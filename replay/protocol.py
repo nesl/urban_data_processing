@@ -15,6 +15,16 @@ from .model import Observation
 from urban_observation_model import Observation as SharedObservation, SCHEMA_VERSION
 
 
+DEFAULT_RECEIVER_PORT = 8766
+DEFAULT_RECEIVER_TIMEOUT = 120.0
+DEFAULT_RECEIVER_RETRIES = 3
+
+
+def receiver_config(config: dict[str, Any], legacy: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the shared replay endpoint with optional legacy overrides."""
+    shared = config.get("replay", {}).get("receiver", {})
+    return {**shared, **(legacy or {})}
+
 
 class ProtocolError(RuntimeError):
     pass
@@ -43,7 +53,9 @@ def inline_observation(observation: Observation) -> dict[str, Any]:
 class SocketJSONLSink:
     """Send one inline observation and wait for its ACK before continuing."""
 
-    def __init__(self, host: str, port: int, *, timeout: float = 120.0, retries: int = 3):
+    def __init__(self, host: str, port: int = DEFAULT_RECEIVER_PORT, *,
+                 timeout: float = DEFAULT_RECEIVER_TIMEOUT,
+                 retries: int = DEFAULT_RECEIVER_RETRIES):
         if retries < 0:
             raise ValueError("retries must be nonnegative")
         self.host, self.port = host, port

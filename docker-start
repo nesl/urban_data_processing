@@ -9,14 +9,31 @@ import json, shlex, sys
 from pathlib import Path
 config = json.load(open(sys.argv[1], encoding="utf-8")); repo = Path(sys.argv[2])
 paths = config.get("paths", {}); enrichment = config.get("enrichment", {}); receiver = config.get("receiver", {})
-output = Path(paths.get("output_root", "./processing-output")).expanduser()
-if not output.is_absolute(): output = (repo / output).resolve()
-output.mkdir(parents=True, exist_ok=True)
+def host_path(value):
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (repo / path).resolve()
+
+legacy_output_root = Path(paths.get("output_root", "./processing-output")).expanduser()
+output_file = Path(receiver.get("output_path", legacy_output_root / "observations.jsonl")).expanduser()
+if not output_file.is_absolute(): output_file = (repo / output_file).resolve()
+output_file.parent.mkdir(parents=True, exist_ok=True)
+data_root = host_path(paths["data_root"])
+backup_root = host_path(paths["backup_root"])
+data_root.mkdir(parents=True, exist_ok=True)
+backup_root.mkdir(parents=True, exist_ok=True)
 values = {
- "OBSERVATION_OUTPUT_HOST": output,
+ "OBSERVATION_OUTPUT_HOST": output_file.parent,
+ "OBSERVATION_OUTPUT_FILE": output_file.name,
+ "OBSERVATION_DATA_HOST": data_root,
+ "OBSERVATION_BACKUP_HOST": backup_root,
+ "OBSERVATION_RECEIVER_BIND_HOST": receiver.get("bind_host", receiver.get("host", "127.0.0.1")),
  "OBSERVATION_RECEIVER_PORT": receiver.get("port", 8766),
  "OBSERVATION_ANOMALY_THRESHOLD": enrichment.get("anomaly_threshold", 0.25),
  "OBSERVATION_ANOMALY_ONLY": str(bool(enrichment.get("anomaly_only", False))).lower(),
+ "OBSERVATION_GPU": str(enrichment.get("gpu", "auto")).lower(),
+ "OBSERVATION_GPU_DEVICES": enrichment.get("gpu_devices", "all"),
+ "OBSERVATION_PYTORCH_VERSION": enrichment.get("pytorch_version", "2.7.1"),
+ "OBSERVATION_PYTORCH_INDEX_URL": enrichment.get("pytorch_index_url", "https://download.pytorch.org/whl/cu118"),
  "OBSERVATION_MAX_MESSAGE_BYTES": receiver.get("max_message_bytes", 25000000),
  "OBSERVATION_TEXT_MODEL": enrichment.get("text_model", "gpt-4o-mini"),
  "OBSERVATION_VISION_MODEL": enrichment.get("vision_model", "gpt-4o-mini"),
@@ -28,6 +45,22 @@ PY
 )"
 
 compose=(docker compose --project-directory "$repo_dir" -f "$repo_dir/compose.yaml")
+gpu_available=false
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+  if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
+    gpu_available=true
+  fi
+fi
+case "$OBSERVATION_GPU" in
+  true|yes|1)
+    compose+=(-f "$repo_dir/compose.gpu.yaml")
+    ;;
+  auto)
+    if [[ "$gpu_available" == true ]]; then compose+=(-f "$repo_dir/compose.gpu.yaml"); fi
+    ;;
+  false|no|0) ;;
+  *) echo "enrichment.gpu must be auto, true, or false" >&2; exit 2 ;;
+esac
 action=${1:-help}; shift || true
 case "$action" in
   up) exec "${compose[@]}" up -d --build "$@" ;;

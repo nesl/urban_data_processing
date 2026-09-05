@@ -1,12 +1,12 @@
 {
   "paths": {
     "data_root": "../urban-observations/data",
-    "backup_root": "../urban-observations/backups",
-    "output_root": "./processing-output"
+    "backup_root": "../urban-observations/backups"
   },
   "receiver": {
-    "host": "0.0.0.0",
+    "bind_host": "127.0.0.1",
     "port": 8766,
+    "output_path": "./processing-output/observations.jsonl",
     "max_message_bytes": 25000000
   },
   "enrichment": {
@@ -14,27 +14,19 @@
     "port": 8770,
     "anomaly_threshold": 0.25,
     "anomaly_only": false,
+    "gpu": "auto",
+    "gpu_devices": "all",
+    "pytorch_version": "2.7.1",
+    "pytorch_index_url": "https://download.pytorch.org/whl/cu118",
     "text_model": "gpt-4o-mini",
     "vision_model": "gpt-4o-mini",
     "openai_api_key": "replace_me",
     "google_places_api_key": "replace_me"
   },
-  "real_replay": {
-    "receiver_host": "127.0.0.1",
-    "receiver_port": 8766
-  },
-  "synthetic_replay": {
-    "dataset_root": "/absolute/path/to/completed/simulator-dataset",
-    "recursive": true,
-    "interval_seconds": 0.0,
-    "output": null,
-    "mapping_output": null,
+  "replay": {
     "receiver": {
-      "enabled": true,
       "host": "127.0.0.1",
-      "port": 8766,
-      "timeout_seconds": 180.0,
-      "retries": 3
+      "port": 8766
     }
   }
 }

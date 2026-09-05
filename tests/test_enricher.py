@@ -19,7 +19,7 @@ class Detector:
 
 class Backend:
     def __init__(self):
-        self.text_calls = []; self.news_calls = []; self.image_calls = []; self.locations = []
+        self.text_calls = []; self.news_calls = []; self.image_calls = []; self.locations = []; self.coordinates = []
     def annotate_text(self, value):
         self.text_calls.append(value)
         return {"summary": "annotated", "location": {"text": "Los Angeles"},
@@ -32,6 +32,10 @@ class Backend:
         self.image_calls.append((content, media_type)); return {"summary": "image annotated"}
     def geocode(self, location):
         self.locations.append(location); return {"latitude": 34.05, "longitude": -118.24}
+    def reverse_geocode(self, latitude, longitude):
+        self.coordinates.append((latitude, longitude))
+        return {"formatted_address": "Los Angeles, CA, USA", "latitude": latitude,
+                "longitude": longitude, "provider": "google", "provider_place_id": "place-1"}
 
 
 def observation(source="citizen", data=None, files=None, observation_id="one"):
@@ -48,6 +52,18 @@ def test_low_anomaly_skips_expensive_text_annotation():
     assert result.value["annotations"]["enrichment"]["status"] == "skipped_by_anomaly"
 
 
+def test_low_anomaly_still_reverse_geocodes_coordinates():
+    backend = Backend()
+    item = observation(data={"body": "ordinary update"}).to_dict()
+    item["latitude"], item["longitude"] = 34.05, -118.24
+
+    result = Enricher(backend, detector=Detector(.1)).enrich(Observation.from_dict(item))
+
+    assert backend.text_calls == []
+    assert backend.coordinates == [(34.05, -118.24)]
+    assert result.value["annotations"]["location"]["formatted_address"] == "Los Angeles, CA, USA"
+
+
 def test_high_anomaly_uses_text_model_and_geocoder():
     backend = Backend()
     result = Enricher(backend, detector=Detector(.8)).enrich(
@@ -59,6 +75,35 @@ def test_high_anomaly_uses_text_model_and_geocoder():
     assert annotations["location"]["latitude"] == 34.05
 
 
+def test_coordinate_only_observation_is_reverse_geocoded():
+    class CoordinateOnlyBackend(Backend):
+        def annotate_text(self, value):
+            self.text_calls.append(value)
+            return {"summary": "coordinate-only report"}
+
+    backend = CoordinateOnlyBackend()
+    item = observation(source="cctv", data={"description": "Smoke visible"}).to_dict()
+    item["latitude"], item["longitude"] = 34.05, -118.24
+
+    result = Enricher(backend, detector=Detector(.8)).enrich(Observation.from_dict(item))
+
+    assert backend.coordinates == [(34.05, -118.24)]
+    assert result.value["annotations"]["location"]["formatted_address"] == "Los Angeles, CA, USA"
+
+
+def test_model_label_with_null_score_is_normalized():
+    class NullScoreBackend(Backend):
+        def annotate_text(self, value):
+            return {"incidents": [{"name": "urban fire", "score": None}]}
+
+    result = Enricher(NullScoreBackend(), detector=Detector(.8)).enrich(
+        observation(data={"description": "Smoke is visible"}))
+
+    assert result.value["annotations"]["incidents"] == [
+        {"name": "urban fire", "score": 0.0}
+    ]
+
+
 def test_high_anomaly_sends_inline_image_to_vision_backend():
     content = b"jpeg bytes"
     inline = InlineFile("camera.jpg", "image/jpeg", len(content),
@@ -68,6 +113,38 @@ def test_high_anomaly_sends_inline_image_to_vision_backend():
         observation(source="cctv", files=[inline.to_dict()]))
     assert backend.image_calls == [(content, "image/jpeg")]
     assert result.value["annotations"]["summary"] == "image annotated"
+
+
+def test_image_vlm_clears_weak_detector_incident_and_sensor_location_wins():
+    class ImageResult(Result):
+        def to_observation_model_payload(self):
+            return {"anomaly": {"score": .8, "modality": "image", "diagnostics": {}},
+                    "observed_effects": [],
+                    "possible_incidents": [{"name": "wildfire", "score": .8}]}
+
+    class ImageDetector:
+        def detect_report(self, report): return ImageResult(.8)
+
+    class ImageBackend(Backend):
+        def annotate_image(self, content, media_type):
+            return {"summary": "ordinary mountain view", "location": {"text": "UC San Diego"}}
+        def reverse_geocode(self, latitude, longitude):
+            # Provider result coordinates may be an address centroid; the
+            # original sensor coordinates must remain authoritative.
+            return {"formatted_address": "Los Angeles, CA, USA", "latitude": 1, "longitude": 2}
+
+    content = b"jpeg bytes"
+    inline = InlineFile("camera.jpg", "image/jpeg", len(content),
+                        hashlib.sha256(content).hexdigest(), content)
+    item = observation(source="alertcalifornia", files=[inline.to_dict()]).to_dict()
+    item["latitude"], item["longitude"] = 34.13, -118.32
+    result = Enricher(ImageBackend(), detector=ImageDetector()).enrich(Observation.from_dict(item))
+    annotations = result.value["annotations"]
+
+    assert annotations["incidents"] == []
+    assert annotations["summary"] == "ordinary mountain view"
+    assert annotations["location"]["formatted_address"] == "Los Angeles, CA, USA"
+    assert annotations["location"]["latitude"] == 34.13
 
 
 def test_link_only_news_is_retrieved_before_detection_and_annotation():
@@ -83,6 +160,20 @@ def test_link_only_news_is_retrieved_before_detection_and_annotation():
     ]
     assert result.value["annotations"]["article_retrieval"]["status"] == "ok"
     assert detector.reports[0]["sensor_type"] == "gdelt"
+
+
+def test_synthetic_news_fields_use_news_annotation():
+    backend = Backend()
+    result = Enricher(backend, detector=Detector(.8)).enrich(observation(
+        source="news",
+        data={"headline": "Fire contained", "article_text": "Crews remain on scene."},
+    ))
+
+    assert backend.text_calls == []
+    assert backend.news_calls == ["Fire contained\n\nCrews remain on scene."]
+    assert result.value["annotations"]["news_incidents"] == [
+        {"name": "2026 Downtown Los Angeles Fire", "score": .9}
+    ]
 
 
 def test_force_bypasses_low_anomaly_gate():

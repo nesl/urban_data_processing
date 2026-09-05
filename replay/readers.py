@@ -120,7 +120,10 @@ def read_weather(partition: Partition, *, weather_locations: str | None = None,
         parts = PurePosixPath(stored.relative_path).parts
         sensor = parts[-2].replace("  ", " ") if len(parts) > 1 else "unknown"
         lat, lon = locations.get(sensor, (None, None))
-        time = _timestamp(stored.name.split(".")[0], partition.day, local_timezone)
+        # OpenWeather names files with the API observation's UTC timestamp
+        # (weather_extract.py uses utcfromtimestamp), unlike collectors such as
+        # CCTV and PurpleAir that name files in the host's local timezone.
+        time = _timestamp(stored.name.split(".")[0], partition.day, "UTC")
         for index, row in enumerate(_csv_rows(stored)):
             if len(row) < 4: continue
             try:
@@ -191,13 +194,19 @@ def read_cameras(partition: Partition, *, source: str, cctv_locations: str | Non
         lat, lon = camera_locations.get(sensor, (None, None)); data: dict[str, Any] = {}; refs = [_file_ref(stored, "image/jpeg")]
         if source == "alertcalifornia":
             sidecar = by_rel.get(str(PurePosixPath(stored.relative_path).with_suffix(".location")))
-            if sidecar:
-                refs.append(_file_ref(sidecar, "text/plain"))
-                try:
-                    values = [v.strip() for v in sidecar.read_text().split(",")]
-                    lat, lon = float(values[0]), float(values[1])
-                    if len(values) > 2 and values[2]: data["direction_degrees"] = float(values[2])
-                except (ValueError, IndexError): data["location_parse_error"] = True
+            # The collector writes the image before Selenium finishes resolving
+            # its camera position. In follow mode, emitting that incomplete image
+            # marks its stable ID as seen and the later sidecar is never observed.
+            # Wait for a complete, parseable pair instead.
+            if sidecar is None:
+                continue
+            try:
+                values = [v.strip() for v in sidecar.read_text().split(",")]
+                lat, lon = float(values[0]), float(values[1])
+                if len(values) > 2 and values[2]: data["direction_degrees"] = float(values[2])
+            except (ValueError, IndexError):
+                continue
+            refs.append(_file_ref(sidecar, "text/plain"))
         yield Observation(_id(source, sensor, time, stored.relative_path), source, time, sensor, data,
                           latitude=lat, longitude=lon, files=tuple(refs), raw=_raw(partition, stored, f"{source}_image.v1"))
 

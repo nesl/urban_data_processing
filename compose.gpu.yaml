@@ -1,0 +1,7 @@
+services:
+  enrichment:
+    runtime: nvidia
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${OBSERVATION_GPU_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility

@@ -17,8 +17,41 @@ import sys
 import time
 from typing import Any, Iterator
 
+try:
+    from tqdm import tqdm
+except ImportError:  # Keep source checkouts usable before dependencies are installed.
+    class tqdm:  # type: ignore[no-redef]
+        def __init__(self, *, total: int, desc: str, unit: str, file: Any,
+                     disable: bool = False, **_: Any):
+            self.total, self.desc, self.unit, self.file, self.count = total, desc, unit, file, 0
+            self.disable = disable
+            if not self.disable:
+                self._render()
+
+        def _render(self) -> None:
+            percent = 100 if not self.total else int(self.count * 100 / self.total)
+            print(f"\r{self.desc}: {percent:3d}% ({self.count}/{self.total} {self.unit})",
+                  end="", file=self.file, flush=True)
+
+        def set_postfix_str(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def update(self, amount: int = 1) -> None:
+            self.count += amount
+            if not self.disable:
+                self._render()
+
+        def close(self) -> None:
+            if not self.disable:
+                print(file=self.file, flush=True)
 from urban_observation_model import InlineFile, Observation, SCHEMA_VERSION
 from observation_pipeline.config import get_config
+from replay.protocol import (
+    DEFAULT_RECEIVER_PORT,
+    DEFAULT_RECEIVER_RETRIES,
+    DEFAULT_RECEIVER_TIMEOUT,
+    receiver_config,
+)
 
 
 ROW_METADATA_FIELDS = {
@@ -145,10 +178,23 @@ def discover(root: Path, recursive: bool) -> list[Path]:
     return sorted({path.parent for path in root.glob(pattern)})
 
 
+def observation_count(folders: list[Path], limit: int | None = None) -> int:
+    """Count non-empty JSONL records so replay can report determinate progress."""
+    count = 0
+    for folder in folders:
+        with (folder / "observations.txt").open(encoding="utf-8") as stream:
+            count += sum(bool(line.strip()) for line in stream)
+        if limit is not None and count >= limit:
+            return limit
+    return count
+
+
 class ReceiverSink:
     """Stop-and-wait sender for the Urban Observations receiver."""
 
-    def __init__(self, host: str, port: int, timeout: float, retries: int = 3):
+    def __init__(self, host: str, port: int = DEFAULT_RECEIVER_PORT,
+                 timeout: float = DEFAULT_RECEIVER_TIMEOUT,
+                 retries: int = DEFAULT_RECEIVER_RETRIES):
         if retries < 0:
             raise ValueError("retries must be nonnegative")
         self.host, self.port = host, port
@@ -223,6 +269,8 @@ def parser() -> argparse.ArgumentParser:
     result.set_defaults(receiver=None)
     result.add_argument("--interval-seconds", type=float)
     result.add_argument("--limit", type=int)
+    result.add_argument("--no-progress", action="store_true",
+                        help="Disable the stderr progress bar")
     return result
 
 
@@ -230,7 +278,7 @@ def replay_settings(args: argparse.Namespace) -> argparse.Namespace:
     """Apply config defaults while preserving explicit command-line overrides."""
     config = get_config(args.config)
     replay = config.get("synthetic_replay", {})
-    receiver = replay.get("receiver", {})
+    receiver = receiver_config(config, replay.get("receiver", {}))
     host_was_overridden = args.receiver_host is not None
 
     root = args.root or replay.get("dataset_root")
@@ -243,10 +291,13 @@ def replay_settings(args: argparse.Namespace) -> argparse.Namespace:
         Path(replay["mapping_output"]) if replay.get("mapping_output") else None
     )
     args.receiver_host = args.receiver_host or receiver.get("host")
-    args.receiver_port = args.receiver_port or int(receiver.get("port", 8766))
-    args.receiver_timeout = args.receiver_timeout or float(receiver.get("timeout_seconds", 180.0))
+    args.receiver_port = args.receiver_port or int(receiver.get("port", DEFAULT_RECEIVER_PORT))
+    args.receiver_timeout = (
+        float(receiver.get("timeout_seconds", DEFAULT_RECEIVER_TIMEOUT))
+        if args.receiver_timeout is None else args.receiver_timeout
+    )
     args.receiver_retries = (
-        int(receiver.get("retries", 3))
+        int(receiver.get("retries", DEFAULT_RECEIVER_RETRIES))
         if args.receiver_retries is None else args.receiver_retries
     )
     args.interval_seconds = (
@@ -269,6 +320,14 @@ def main(argv=None) -> int:
         raise SystemExit("provide --output and/or --receiver-host")
     output = mapping = sink = None
     count = 0
+    progress = tqdm(
+        total=observation_count(folders, args.limit),
+        desc="Replaying observations",
+        unit="obs",
+        dynamic_ncols=True,
+        disable=args.no_progress,
+        file=sys.stderr,
+    )
     try:
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -284,6 +343,7 @@ def main(argv=None) -> int:
                 args.receiver_retries,
             )
         for folder in folders:
+            progress.set_postfix_str(folder.name, refresh=True)
             for observation, private_mapping in iter_run(folder):
                 if output:
                     output.write(observation.to_json() + "\n"); output.flush()
@@ -292,6 +352,7 @@ def main(argv=None) -> int:
                 if sink:
                     sink.write(observation)
                 count += 1
+                progress.update(1)
                 if args.interval_seconds:
                     time.sleep(args.interval_seconds)
                 if args.limit is not None and count >= args.limit:
@@ -300,6 +361,7 @@ def main(argv=None) -> int:
         print(f"emitted {count} observations from {len(folders)} run folders", file=sys.stderr)
         return 0
     finally:
+        progress.close()
         if sink: sink.close()
         if mapping: mapping.close()
         if output: output.close()

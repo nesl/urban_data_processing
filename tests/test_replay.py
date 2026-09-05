@@ -14,6 +14,7 @@ from replay.catalog import DataCatalog, open_file_reference
 from replay.engine import JSONLSink, follow, historical
 from replay.model import FileReference, Observation
 from replay.protocol import SocketJSONLSink, inline_observation
+from replay.readers import observations
 
 
 def _require_local_sockets():
@@ -136,6 +137,21 @@ def test_archived_camera_asset_remains_readable(tmp_path):
         assert handle.read() == image
 
 
+def test_alertcalifornia_waits_for_matching_location_sidecar(tmp_path):
+    data, backup, catalog = _catalog(tmp_path)
+    camera = data / "alertcalifornia" / "20260801" / "Camera A"
+    camera.mkdir(parents=True)
+    (camera / "20260801120000.jpg").write_bytes(b"jpeg")
+    partition = catalog.partition("alertcalifornia", "20260801")
+
+    assert list(observations(partition, "alertcalifornia")) == []
+
+    (camera / "20260801120000.location").write_text("34.2,-118.2,90", encoding="utf-8")
+    rows = list(observations(partition, "alertcalifornia"))
+    assert len(rows) == 1
+    assert (rows[0].latitude, rows[0].longitude) == (34.2, -118.2)
+
+
 def _write_one_local_example_per_source(data: Path):
     day = "20260801"
     air = data / "air_data" / day; air.mkdir(parents=True)
@@ -180,6 +196,8 @@ def test_one_local_instance_of_every_supported_source_reaches_jsonl(tmp_path):
     assert {row["source"] for row in output} == set(sources)
     assert all({"id", "source", "time", "sensor", "data", "files", "raw"} <= row.keys() for row in output)
     assert next(row for row in output if row["source"] == "weather")["data"]["wind_direction_degrees"] == 270
+    assert next(row for row in output if row["source"] == "weather")["time"] == "2026-08-01T12:00:00Z"
+    assert next(row for row in output if row["source"] == "air")["time"] == "2026-08-01T19:00:00Z"
     assert next(row for row in output if row["source"] == "cctv")["files"][0]["media_type"] == "image/jpeg"
 
 

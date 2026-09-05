@@ -76,6 +76,18 @@ class OpenAIBackend:
         return {"formatted_address": result.get("formatted_address"), "latitude": point["lat"],
                 "longitude": point["lng"], "provider": "google", "provider_place_id": result.get("place_id")}
 
+    def reverse_geocode(self, latitude, longitude):
+        if not self.google_api_key: return None
+        import requests
+        response = requests.get("https://maps.googleapis.com/maps/api/geocode/json",
+                                params={"latlng": f"{latitude},{longitude}", "key": self.google_api_key},
+                                timeout=20)
+        response.raise_for_status(); results = response.json().get("results") or []
+        if not results: return None
+        result = results[0]; point = result["geometry"]["location"]
+        return {"formatted_address": result.get("formatted_address"), "latitude": point["lat"],
+                "longitude": point["lng"], "provider": "google", "provider_place_id": result.get("place_id")}
+
 
 def retrieve_article(url: str) -> str:
     import requests

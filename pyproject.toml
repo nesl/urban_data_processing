@@ -7,10 +7,17 @@ name = "urban-observation-processing"
 version = "0.1.0"
 description = "Replay, transport, validation, and enrichment for urban observations"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["tqdm>=4.66"]
 
 [project.optional-dependencies]
-enrichment = ["beautifulsoup4>=4.12", "openai>=1", "requests>=2.31"]
+enrichment = [
+  "beautifulsoup4>=4.12",
+  "openai>=1",
+  "Pillow>=10",
+  "requests>=2.31",
+  "torch==2.7.1",
+  "transformers>=4.40",
+]
 dev = ["pytest>=7"]
 
 [project.scripts]
